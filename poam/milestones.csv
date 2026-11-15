@@ -1,0 +1,22 @@
+poam_id,milestone,description,due_date,completed_date
+POAM-0001,M1,Disable the 6 identified accounts,2026-10-20,2026-10-17
+POAM-0001,M2,Deploy automated 35-day inactivity job,2026-11-30,
+POAM-0001,M3,Verify with a test query and close,2026-12-15,
+POAM-0002,M1,Update dependencies in release 2.4,2026-11-06,2026-11-10
+POAM-0002,M2,Add CI gate that fails builds with past-window flaws,2026-11-20,
+POAM-0002,M3,Rescan and close,2026-11-30,
+POAM-0003,M1,Tabletop exercise,2027-01-15,
+POAM-0003,M2,Database restore test,2027-02-12,
+POAM-0003,M3,After-action report,2027-02-26,
+POAM-0004,M1,Create recurring review ticket with checklist,2026-11-09,2026-11-02
+POAM-0004,M2,Six consecutive weeks documented,2026-12-31,
+POAM-0005,M1,Buy 15 FIDO2 keys and approve the IdP policy change,2026-11-20,
+POAM-0005,M2,Enroll HR users and enforce phishing-resistant MFA,2026-12-04,
+POAM-0005,M3,SOC bulk-export alert live and tested,2026-12-11,
+POAM-0006,M1,Enable account-level public access block,2026-12-04,
+POAM-0006,M2,Daily alert on any bucket policy change,2026-12-18,
+POAM-0007,M1,Agree peer-group rules with HR,2026-12-15,
+POAM-0007,M2,Build the SOC alert,2027-01-22,
+POAM-0007,M3,Tune and start the weekly review of hits,2027-02-05,
+POAM-0008,M1,Apply vendor fix,2026-11-11,
+POAM-0009,M1,Publish holiday on-call schedule,2026-10-31,2026-10-24
