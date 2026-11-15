@@ -1,0 +1,27 @@
+param_id,control,description,value,policy
+P-PL-01,PL-1,How often every policy is reviewed,annually,ISP-00
+P-AT-01,AT-2,How often workforce members complete security awareness training,annually,ISP-00
+P-AC-01,AC-2(3),Inactivity period after which local and service accounts are disabled,35 days,ISP-AC
+P-AC-02,AC-2,How often privileged and HR role assignments are reviewed,quarterly,ISP-AC
+P-AC-03,AC-2,Deadline to disable access after a workforce member separates,1 business day,ISP-AC
+P-AC-04,AC-12,Idle time before an application session ends,15 minutes,ISP-AC
+P-AU-01,AU-6,How often the ISSO reviews system-specific audit logs,weekly,ISP-AU
+P-AU-02,AU-11,How long audit records are kept,12 months,ISP-AU
+P-CM-01,SC-8,Minimum TLS version for data in transit,TLS 1.2,ISP-CM
+P-CM-02,CM-6,How often configuration compliance scans run,monthly,ISP-CM
+P-CM-03,CM-2,How often baseline configurations are reviewed,annually,ISP-CM
+P-CP-01,CP-4,How often each contingency plan is tested,annually,ISP-CP
+P-CP-02,CP-2,How often each contingency plan is reviewed,annually,ISP-CP
+P-IR-01,IR-6,Deadline for staff to report a suspected incident to the SOC,1 hour,ISP-IR
+P-IR-02,IR-3,How often incident response capability is tested,annually,ISP-IR
+P-RA-01,RA-3,How often each system risk assessment is updated,annually,ISP-RA
+P-RA-02,RA-5,How often authenticated vulnerability scans run,weekly,ISP-RA
+P-SI-01,SI-2,Remediation window for Critical flaws,15 days,ISP-RA
+P-SI-02,SI-2,Remediation window for High flaws,30 days,ISP-RA
+P-SI-03,SI-2,Remediation window for Moderate flaws,60 days,ISP-RA
+P-SI-04,SI-2,Remediation window for Low flaws,90 days,ISP-RA
+P-CA-01,CA-5,Longest allowed POA&M completion time for a High weakness,30 days,ISP-CA
+P-CA-02,CA-5,Longest allowed POA&M completion time for a Moderate weakness,90 days,ISP-CA
+P-CA-03,CA-5,Longest allowed POA&M completion time for a Low weakness,180 days,ISP-CA
+P-CA-04,CA-5,How often the ISSO updates and reports the POA&M,monthly,ISP-CA
+P-CA-05,CA-5,Longest time a risk acceptance stays valid before it must be renewed,12 months,ISP-CA
