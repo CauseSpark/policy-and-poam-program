@@ -20,15 +20,14 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.datavalidation import DataValidation
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-from poam_tracker import DUE_SOON_DAYS, MILESTONES, PARAMS, POAM, RISKS, STATUSES, load_windows, read_csv  # noqa: E402
+from poam_tracker import AS_OF, DUE_SOON_DAYS, MILESTONES, PARAMS, POAM, RISKS, STATUSES, load_windows, read_csv
 
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUT = ROOT / "output" / "acme_hr_portal_poam_tracker.xlsx"
 FONT = "Arial"
 FIRST, CAP = 5, 100
 LAST = FIRST + CAP - 1
-ASOF = "Dashboard!$C$4"
+ASOF_CELL = "Dashboard!$C$4"
 DUESOON = "Rules!$C$19"
 DATE_FMT = "yyyy-mm-dd"
 
@@ -52,6 +51,14 @@ def font(bold=False, color="000000", size=10, italic=False):
     return Font(name=FONT, bold=bold, color=color, size=size, italic=italic)
 
 
+def put(ws, ref, value, **style):
+    """Write a value in the workbook font and return the cell."""
+    cell = ws[ref]
+    cell.value = value
+    cell.font = font(**style)
+    return cell
+
+
 def header(cell, text):
     cell.value = text
     cell.font = font(bold=True, color="FFFFFF")
@@ -61,17 +68,27 @@ def header(cell, text):
 
 
 def title(ws, text, sub):
-    ws["A1"] = text
-    ws["A1"].font = font(bold=True, size=14, color="1F3864")
-    ws["A2"] = sub
-    ws["A2"].font = font(italic=True, color="595959")
+    put(ws, "A1", text, bold=True, size=14, color="1F3864")
+    put(ws, "A2", sub, italic=True, color="595959")
+
+
+def widths(ws, **columns):
+    for letter, width in columns.items():
+        ws.column_dimensions[letter].width = width
+
+
+def span(letter):
+    return f"{letter}{FIRST}:{letter}{LAST}"
+
+
+def highlight(operator, value, fill="C00000", color="FFFFFF"):
+    return CellIsRule(operator=operator, formula=[value],
+                      fill=PatternFill("solid", fgColor=fill), font=Font(name=FONT, bold=True, color=color))
 
 
 def flag_formatting(ws, rng):
     for flag, (fill, fcolor) in FLAG_STYLE.items():
-        ws.conditional_formatting.add(rng, CellIsRule(
-            operator="equal", formula=[f'"{flag}"'],
-            fill=PatternFill("solid", fgColor=fill), font=Font(name=FONT, bold=True, color=fcolor)))
+        ws.conditional_formatting.add(rng, highlight("equal", f'"{flag}"', fill, fcolor))
 
 
 def as_date(v):
@@ -159,11 +176,11 @@ def poam_formulas():
             f'INDEX(Rules!$C$13:$C$16,MATCH({F}{r},Rules!$B$13:$B$16,0)),'
             f'INDEX(Rules!$C$6:$C$8,MATCH({F}{r},Rules!$B$6:$B$8,0))))'),
         "Within Window": lambda r: f'=IF({A}{r}="","",IF({H}{r}-{G}{r}<={R}{r},"Yes","No"))',
-        "Days Open": lambda r: f'=IF({A}{r}="","",IF({L}{r}<>"",{L}{r},{ASOF})-{G}{r})',
-        "Days to Due": lambda r: f'=IF(OR({A}{r}="",{done(r)}),"",{H}{r}-{ASOF})',
+        "Days Open": lambda r: f'=IF({A}{r}="","",IF({L}{r}<>"",{L}{r},{ASOF_CELL})-{G}{r})',
+        "Days to Due": lambda r: f'=IF(OR({A}{r}="",{done(r)}),"",{H}{r}-{ASOF_CELL})',
         "Flag": lambda r: (
-            f'=IF({A}{r}="","",IF({done(r)},{K}{r},IF({H}{r}<{ASOF},"Overdue",'
-            f'IF({H}{r}-{ASOF}<={DUESOON},"Due Soon","On Track"))))'),
+            f'=IF({A}{r}="","",IF({done(r)},{K}{r},IF({H}{r}<{ASOF_CELL},"Overdue",'
+            f'IF({H}{r}-{ASOF_CELL}<={DUESOON},"Due Soon","On Track"))))'),
         "Open Milestones": lambda r: f'=IF({A}{r}="","",COUNTIFS({ms_rng},{A}{r},{ms_flag},"<>Done"))',
         "Overdue Milestones": lambda r: f'=IF({A}{r}="","",COUNTIFS({ms_rng},{A}{r},{ms_flag},"Overdue"))',
     }
@@ -172,61 +189,44 @@ def poam_formulas():
 def ms_formulas():
     A, D, E = MC["POA&M ID"], MC["Due"], MC["Completed"]
     return {
-        "Days Late": lambda r: f'=IF({A}{r}="","",IF({E}{r}<>"",MAX(0,{E}{r}-{D}{r}),IF({D}{r}<{ASOF},{ASOF}-{D}{r},0)))',
-        "Flag": lambda r: (f'=IF({A}{r}="","",IF({E}{r}<>"","Done",IF({D}{r}<{ASOF},"Overdue",'
-                           f'IF({D}{r}-{ASOF}<={DUESOON},"Due Soon","Open"))))'),
+        "Days Late": lambda r: f'=IF({A}{r}="","",IF({E}{r}<>"",MAX(0,{E}{r}-{D}{r}),IF({D}{r}<{ASOF_CELL},{ASOF_CELL}-{D}{r},0)))',
+        "Flag": lambda r: (f'=IF({A}{r}="","",IF({E}{r}<>"","Done",IF({D}{r}<{ASOF_CELL},"Overdue",'
+                           f'IF({D}{r}-{ASOF_CELL}<={DUESOON},"Due Soon","Open"))))'),
     }
 
 
 def build_rules(wb, windows):
     ws = wb.create_sheet("Rules")
     title(ws, "Rules", "Values come from data/parameters.csv, the same register the policies cite.")
-    ws["B5"].value = "POA&M completion limits (ISP-CA 4.3)"
-    ws["B5"].font = font(bold=True)
-    for i, (risk, pid) in enumerate(zip(RISKS, ["P-CA-01", "P-CA-02", "P-CA-03"])):
-        ws.cell(row=6 + i, column=2, value=risk).font = font()
-        c = ws.cell(row=6 + i, column=3, value=windows["poam"][risk])
-        c.font = font(color="0000FF")
-        ws.cell(row=6 + i, column=4, value=f"days  ({pid})").font = font(color="595959")
-    ws["B12"].value = "Flaw remediation windows for scan items (ISP-RA 4.3)"
-    ws["B12"].font = font(bold=True)
-    for i, (sev, pid) in enumerate(zip(["Critical", "High", "Moderate", "Low"], ["P-SI-01", "P-SI-02", "P-SI-03", "P-SI-04"])):
-        ws.cell(row=13 + i, column=2, value=sev).font = font()
-        c = ws.cell(row=13 + i, column=3, value=windows["flaw"][sev])
-        c.font = font(color="0000FF")
-        ws.cell(row=13 + i, column=4, value=f"days  ({pid})").font = font(color="595959")
-    ws["B19"].value = "Due-soon threshold"
-    ws["B19"].font = font(bold=True)
-    ws["C19"].value = DUE_SOON_DAYS
-    ws["C19"].font = font(color="0000FF")
-    ws["D19"].value = "days (tracker setting)"
-    ws["D19"].font = font(color="595959")
-    ws["B22"].value = "Status values"
-    ws["B22"].font = font(bold=True)
-    for i, s in enumerate(STATUSES):
-        ws.cell(row=23 + i, column=2, value=s).font = font()
-    ws["C22"].value = "Risk values"
-    ws["C22"].font = font(bold=True)
-    for i, r in enumerate(RISKS):
-        ws.cell(row=23 + i, column=3, value=r).font = font()
-    ws.column_dimensions["A"].width = 3
-    ws.column_dimensions["B"].width = 50
-    ws.column_dimensions["C"].width = 12
-    ws.column_dimensions["D"].width = 22
+    tables = [  # (heading row, heading, days by rating, parameter IDs)
+        (5, "POA&M completion limits (ISP-CA 4.3)", windows["poam"], ["P-CA-01", "P-CA-02", "P-CA-03"]),
+        (12, "Flaw remediation windows for scan items (ISP-RA 4.3)", windows["flaw"],
+         ["P-SI-01", "P-SI-02", "P-SI-03", "P-SI-04"]),
+    ]
+    for top, heading, days, pids in tables:
+        put(ws, f"B{top}", heading, bold=True)
+        for r, (rating, pid) in enumerate(zip(days, pids), start=top + 1):
+            put(ws, f"B{r}", rating)
+            put(ws, f"C{r}", days[rating], color="0000FF")
+            put(ws, f"D{r}", f"days  ({pid})", color="595959")
+    put(ws, "B19", "Due-soon threshold", bold=True)
+    put(ws, "C19", DUE_SOON_DAYS, color="0000FF")
+    put(ws, "D19", "days (tracker setting)", color="595959")
+    for col, heading, values in (("B", "Status values", STATUSES), ("C", "Risk values", RISKS)):
+        put(ws, f"{col}22", heading, bold=True)
+        for r, value in enumerate(values, start=23):
+            put(ws, f"{col}{r}", value)
+    widths(ws, A=3, B=50, C=12, D=22)
 
 
 def build_dashboard(wb, as_of):
     ws = wb.active
     ws.title = "Dashboard"
     title(ws, "Acme HR Portal: POA&M Dashboard", "FICTIONAL. Every figure is a formula over the POA&M and Milestones sheets.")
-    ws["B4"] = "As-of date"
-    ws["B4"].font = font(bold=True)
-    ws["C4"] = as_of
-    ws["C4"].number_format = DATE_FMT
-    ws["C4"].fill = INPUT_FILL
-    ws["C4"].font = font(bold=True, color="0000FF")
-    ws["D4"] = "Change this date, or type =TODAY() for a live tracker."
-    ws["D4"].font = font(italic=True, color="595959")
+    put(ws, "B4", "As-of date", bold=True)
+    c = put(ws, "C4", as_of, bold=True, color="0000FF")
+    c.number_format, c.fill, c.alignment = DATE_FMT, INPUT_FILL, Alignment(horizontal="left")
+    put(ws, "D4", "Change this date, or type =TODAY() for a live tracker.", italic=True, color="595959")
 
     rng = lambda h: f"'POA&M'!${PC[h]}${FIRST}:${PC[h]}${LAST}"  # noqa: E731
     flag, status, risk = rng("Flag"), rng("Status"), rng("Risk")
@@ -242,33 +242,17 @@ def build_dashboard(wb, as_of):
          f'=_xlfn.MAXIFS({rng("Days Open")},{status},"<>Closed",{status},"<>Risk Accepted")'),
         ("Items scheduled past the policy window (should be 0)", f'=COUNTIF({rng("Within Window")},"No")'),
     ]
-    header(ws["B6"], "Measure")
-    header(ws["C6"], "Count")
-    for i, (label, f) in enumerate(rows):
-        ws.cell(row=7 + i, column=2, value=label).font = font()
-        c = ws.cell(row=7 + i, column=3, value=f)
-        c.font = font(bold=True)
-        c.border = BORDER
-    ws.conditional_formatting.add("C8", CellIsRule(operator="greaterThan", formula=["0"],
-                                  fill=PatternFill("solid", fgColor="C00000"), font=Font(name=FONT, bold=True, color="FFFFFF")))
-    ws.conditional_formatting.add("C11", CellIsRule(operator="greaterThan", formula=["0"],
-                                  fill=PatternFill("solid", fgColor="C00000"), font=Font(name=FONT, bold=True, color="FFFFFF")))
-    ws.conditional_formatting.add("C15", CellIsRule(operator="greaterThan", formula=["0"],
-                                  fill=PatternFill("solid", fgColor="C00000"), font=Font(name=FONT, bold=True, color="FFFFFF")))
-
-    header(ws["E6"], "Active by risk")
-    header(ws["F6"], "Count")
-    for i, rk in enumerate(RISKS):
-        ws.cell(row=7 + i, column=5, value=rk).font = font()
-        ws.cell(row=7 + i, column=6,
-                value=f'=COUNTIFS({risk},E{7 + i},{status},"<>Closed",{status},"<>Risk Accepted")').font = font(bold=True)
-    ws.column_dimensions["A"].width = 3
-    ws.column_dimensions["B"].width = 52
-    ws.column_dimensions["C"].width = 12
-    ws.column_dimensions["D"].width = 3
-    ws.column_dimensions["E"].width = 16
-    ws.column_dimensions["F"].width = 10
-    ws["C4"].alignment = Alignment(horizontal="left")
+    for ref, text in (("B6", "Measure"), ("C6", "Count"), ("E6", "Active by risk"), ("F6", "Count")):
+        header(ws[ref], text)
+    for r, (label, formula) in enumerate(rows, start=7):
+        put(ws, f"B{r}", label)
+        put(ws, f"C{r}", formula, bold=True).border = BORDER
+    for ref in ("C8", "C11", "C15"):   # overdue items, overdue milestones, items past the window
+        ws.conditional_formatting.add(ref, highlight("greaterThan", "0"))
+    for r, rk in enumerate(RISKS, start=7):
+        put(ws, f"E{r}", rk)
+        put(ws, f"F{r}", f'=COUNTIFS({risk},E{r},{status},"<>Closed",{status},"<>Risk Accepted")', bold=True)
+    widths(ws, A=3, B=52, C=12, D=3, E=16, F=10)
 
 
 def build_instructions(wb):
@@ -284,17 +268,14 @@ def build_instructions(wb):
         ("Within Window = No", "The scheduled date is later than policy allows. Pull the date in or get a documented extension."),
         ("Source of truth", "poam/poam.csv and poam/milestones.csv. This workbook is generated from them by src/build_tracker.py."),
     ]
-    for i, (k, v) in enumerate(lines):
-        ws.cell(row=4 + i, column=1, value=k).font = font(bold=True)
-        c = ws.cell(row=4 + i, column=2, value=v)
-        c.font = font()
-        c.alignment = Alignment(wrap_text=True, vertical="top")
-        ws.row_dimensions[4 + i].height = 30
-    ws.column_dimensions["A"].width = 26
-    ws.column_dimensions["B"].width = 100
+    for r, (k, v) in enumerate(lines, start=4):
+        put(ws, f"A{r}", k, bold=True)
+        put(ws, f"B{r}", v).alignment = Alignment(wrap_text=True, vertical="top")
+        ws.row_dimensions[r].height = 30
+    widths(ws, A=26, B=100)
 
 
-def build(out: Path = DEFAULT_OUT, as_of: date = date(2026, 11, 15),
+def build(out: Path = DEFAULT_OUT, as_of: date = AS_OF,
           poam_path: Path = POAM, ms_path: Path = MILESTONES, params_path: Path = PARAMS) -> Path:
     poam, ms = read_csv(poam_path), read_csv(ms_path)
     if len(poam) > CAP or len(ms) > CAP:
@@ -306,15 +287,12 @@ def build(out: Path = DEFAULT_OUT, as_of: date = date(2026, 11, 15),
     ws = wb.create_sheet("POA&M")
     title(ws, "Plan of Action and Milestones", "Columns A-Q are the record; R-X are calculated.")
     write_rows(ws, POAM_COLS, poam, poam_formulas())
-    flag_formatting(ws, f"{PC['Flag']}{FIRST}:{PC['Flag']}{LAST}")
-    ws.conditional_formatting.add(f"{PC['Within Window']}{FIRST}:{PC['Within Window']}{LAST}", CellIsRule(
-        operator="equal", formula=['"No"'], fill=PatternFill("solid", fgColor="C00000"), font=Font(name=FONT, color="FFFFFF", bold=True)))
-    dv_status = DataValidation(type="list", formula1="Rules!$B$23:$B$26", allow_blank=True)
-    dv_risk = DataValidation(type="list", formula1="Rules!$C$23:$C$25", allow_blank=True)
-    ws.add_data_validation(dv_status)
-    ws.add_data_validation(dv_risk)
-    dv_status.add(f"{PC['Status']}{FIRST}:{PC['Status']}{LAST}")
-    dv_risk.add(f"{PC['Risk']}{FIRST}:{PC['Risk']}{LAST}")
+    flag_formatting(ws, span(PC["Flag"]))
+    ws.conditional_formatting.add(span(PC["Within Window"]), highlight("equal", '"No"'))
+    for column, choices in (("Status", "Rules!$B$23:$B$26"), ("Risk", "Rules!$C$23:$C$25")):
+        dv = DataValidation(type="list", formula1=choices, allow_blank=True)
+        ws.add_data_validation(dv)
+        dv.add(span(PC[column]))
     ws.page_setup.orientation = "landscape"
     ws.sheet_properties.pageSetUpPr.fitToPage = True
     ws.page_setup.fitToHeight = 0
@@ -322,7 +300,7 @@ def build(out: Path = DEFAULT_OUT, as_of: date = date(2026, 11, 15),
     wm = wb.create_sheet("Milestones")
     title(wm, "Milestones", "One row per milestone. Leave Completed blank until it is done.")
     write_rows(wm, MS_COLS, ms, ms_formulas())
-    flag_formatting(wm, f"{MC['Flag']}{FIRST}:{MC['Flag']}{LAST}")
+    flag_formatting(wm, span(MC["Flag"]))
 
     build_rules(wb, windows)
     build_instructions(wb)
@@ -335,7 +313,7 @@ def build(out: Path = DEFAULT_OUT, as_of: date = date(2026, 11, 15),
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="Build the Excel POA&M tracker")
     p.add_argument("--out", type=Path, default=DEFAULT_OUT)
-    p.add_argument("--as-of", type=date.fromisoformat, default=date(2026, 11, 15))
+    p.add_argument("--as-of", type=date.fromisoformat, default=AS_OF)
     args = p.parse_args(argv)
     print(f"wrote {build(args.out, args.as_of)}")
     return 0
