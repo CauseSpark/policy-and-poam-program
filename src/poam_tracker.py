@@ -28,6 +28,7 @@ RISKS = ["High", "Moderate", "Low"]
 STATUSES = ["Open", "In Progress", "Closed", "Risk Accepted"]
 DONE = {"Closed", "Risk Accepted"}
 DUE_SOON_DAYS = 14
+AS_OF = date(2026, 11, 15)   # date of the committed monthly report
 SCAN_SOURCE = "Weekly scan"
 
 
@@ -278,7 +279,7 @@ def render(items: list[Item], as_of: date) -> str:
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="Validate the POA&M and report status")
-    p.add_argument("--as-of", type=date.fromisoformat, default=date(2026, 11, 15))
+    p.add_argument("--as-of", type=date.fromisoformat, default=AS_OF)
     p.add_argument("--write", type=Path, help="also write the report to this file")
     args = p.parse_args(argv)
     problems, items = load(args.as_of)

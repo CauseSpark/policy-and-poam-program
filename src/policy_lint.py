@@ -11,16 +11,15 @@ a statement with no control mapping, or a policy past its review date.
 from __future__ import annotations
 
 import argparse
-import csv
 import re
 import sys
 from dataclasses import dataclass, field
 from datetime import date
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent.parent
+from poam_tracker import AS_OF, PARAMS, ROOT, read_csv
+
 POLICY_DIR = ROOT / "policies"
-PARAMS = ROOT / "data" / "parameters.csv"
 
 HEADER_FIELDS = ["Document ID", "Title", "Version", "Effective date", "Next review", "Owner",
                  "Approved by", "Review cycle", "Related controls"]
@@ -47,8 +46,7 @@ class Policy:
 
 
 def load_params(path: Path = PARAMS) -> dict[str, dict]:
-    with open(path, newline="", encoding="utf-8") as f:
-        return {r["param_id"]: r for r in csv.DictReader(f)}
+    return {r["param_id"]: r for r in read_csv(path)}
 
 
 def parse_policy(path: Path) -> Policy:
@@ -77,9 +75,10 @@ def load_policies(policy_dir: Path = POLICY_DIR) -> list[Policy]:
 
 def lint(policy_dir: Path = POLICY_DIR, params_path: Path = PARAMS,
          as_of: date | None = None) -> list[str]:
-    as_of = as_of or date(2026, 11, 15)
-    params = load_params(params_path)
-    policies = load_policies(policy_dir)
+    return check(load_policies(policy_dir), load_params(params_path), as_of or AS_OF)
+
+
+def check(policies: list[Policy], params: dict[str, dict], as_of: date) -> list[str]:
     problems: list[str] = []
     versions = {p.doc_id: p.header.get("Version") for p in policies}
     used: dict[str, set[str]] = {}
@@ -133,14 +132,14 @@ def lint(policy_dir: Path = POLICY_DIR, params_path: Path = PARAMS,
                 problems.append(f"{did}: Related controls header lists {', '.join(extra)} but no statement uses them")
 
         # Parameter values must match the register exactly
-        for value, pid in PARAM_USE.findall(pol.text):
+        uses = PARAM_USE.findall(pol.text)
+        for value, pid in uses:
             used.setdefault(pid, set()).add(did)
             if pid not in params:
                 problems.append(f"{did}: unknown parameter {pid}")
             elif value != params[pid]["value"]:
                 problems.append(f"{did}: {pid} says '{value}' but the register says '{params[pid]['value']}'")
-        cited = set(PARAM_ID_ANYWHERE.findall(pol.text))
-        bare = cited - {pid for _, pid in PARAM_USE.findall(pol.text)}
+        bare = set(PARAM_ID_ANYWHERE.findall(pol.text)) - {pid for _, pid in uses}
         for pid in sorted(bare):
             problems.append(f"{did}: {pid} is cited without its value in the form **value** (`{pid}`)")
 
@@ -161,12 +160,12 @@ def lint(policy_dir: Path = POLICY_DIR, params_path: Path = PARAMS,
 
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(description="Lint the policy set")
-    p.add_argument("--as-of", type=date.fromisoformat, default=date(2026, 11, 15))
+    p.add_argument("--as-of", type=date.fromisoformat, default=AS_OF)
     args = p.parse_args(argv)
-    policies = load_policies()
-    problems = lint(as_of=args.as_of)
+    policies, params = load_policies(), load_params()
+    problems = check(policies, params, args.as_of)
     n_statements = sum(len(x.statements) for x in policies)
-    print(f"{len(policies)} policies, {n_statements} statements, {len(load_params())} parameters checked as of {args.as_of}")
+    print(f"{len(policies)} policies, {n_statements} statements, {len(params)} parameters checked as of {args.as_of}")
     if problems:
         print(f"\n{len(problems)} problems:")
         for pr in problems:
